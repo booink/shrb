@@ -40,6 +40,7 @@ module Shrb
 
     def assign
       last_command = nil
+      in_group = false
       loop do
         token = @tokens.shift
         if command_end?(token)
@@ -63,15 +64,20 @@ module Shrb
           pipe.out = @commands.pop
           pipe.in = assign_next
           @commands.push(pipe)
+        when '{'
+          in_group = true
+        when '}'
+          in_group = false
+          @commands.push(last_command)
         when ';'
           # no op
         else
-          last_command ||= Command.new
+          last_command ||= in_group ? CommandGroup.new : Command.new
           last_command.tokens.push(token)
         end
       end
 
-      #puts @commands.inspect
+      puts @commands.inspect
     end
 
     def assign_next
@@ -94,7 +100,8 @@ module Shrb
     private
 
     def command_end?(token)
-      return true if [nil, ';', '|', '{', '(', '}', ')', '&', '&&', '||'].include?(token)
+      return false unless in_group && token == '}'
+      return true if [nil, ';', '|', '{', '(', ')', '&', '&&', '||'].include?(token)
     end
 
     class Commands < Array
@@ -192,10 +199,16 @@ module Shrb
     class SubShell < Base
     end
 
-    class Group < Base
-    end
+    class CommandGroup < Base
+      def execute
+        devide.each(&:execute)
+      end
 
-    class Variable < Base
+      private
+
+      def devide
+        Lexer.new(stringify).parse.assign.commands
+      end
     end
 
     class BraceExpansion < Base

@@ -3,6 +3,7 @@ require 'coolline'
 require 'rouge'
 require 'shrb/configuration'
 require 'shrb/lexer'
+require 'shrb/scanner'
 
 
 module Shrb
@@ -39,17 +40,20 @@ module Shrb
         begin
           result = coolline.readline(Configuration.prompt)
 
-          lexer = Lexer.new(result)
-          lexer.parse
+          #lexer = Lexer.new(result)
+          #lexer.parse
 
-          lexer.assign
-          lexer.execute
+          #lexer.assign
+          #lexer.execute
+
+          scanner = Scanner.new(result)
+          scanner.scan
+
+          scanner.execute
 
         rescue Interrupt
           puts ""
           next
-        rescue Commands::CommandNotFound => e
-          puts e.message
         rescue => e
           puts "error: #{e.message}"
           puts e.backtrace
