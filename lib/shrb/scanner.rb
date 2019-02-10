@@ -1,97 +1,181 @@
 module Shrb
   class Scanner
-    def initialize(text)
-      @text = text
-      @program = Program.new(@text.chars)
+    def initialize
+      @program = Program.new
     end
 
-    def scan
-      @program.scan
+    def scan(text)
+      #@program.scan
+      @text = text
+      @program.scan(@text.chars)
     end
 
     def execute
       @program.execute
     end
 
-    class Program
-      attr_accessor :continue_to_succeed, :continue_to_fail
-      def initialize(chars)
-        @chars = chars
+    def executable?
+      @program.executable?
+    end
+
+    class Base
+      attr_accessor :token, :continue_to_succeed, :continue_to_fail
+
+      def initialize
         @commands = Commands.new
+        @end = false
         @continue_to_succeed = false
         @continue_to_fail = false
-        scan
+        @token = []
       end
 
-      def scan
+      def end?
+        @end
+      end
+
+      def scan(chars)
+        @chars = chars
         loop do
-          char = @chars.shift
-          case char
-          when '{'
-            group = Group.new(@chars)
-            @commands.push(group)
-          when '|'
-            if @chars.first == '|'
-              @chars.shift
-              @commands.last.continue_to_fail = true
-            else
-              pipe = Pipe.new(@chars, @commands.pop)
-              @commands.push(pipe)
-            end
-          when '&'
-            if @chars.first == '&'
-              @chars.shift
-              @commands.last.continue_to_succeed = true
-            else
-              daemon = Daemon.new(@chars, @commands.pop)
-              @commands.push(daemon)
-            end
-          when nil
-            return
-          else
-            @chars.unshift(char)
-            command = Command.new(@chars)
-            @commands.push(command)
-          end
+          break unless _scan(@chars.shift)
         end
       end
 
       def execute
         @commands.execute
       end
-    end
 
-    class Command < Program
-      def initialize(chars)
-        @token = []
-        super
+      def executable?
+        return false if @commands.empty?
+        @commands.last.executable?
       end
 
-      def scan
-        loop do
-          char = @chars.shift
-          case char
-          when ';', '}', nil
-            return
-          when '|'
-            @chars.unshift(char)
-            return
-          when "'"
-            single_quoted_text = SingleQuotedText.new(@chars)
-            @token += ["'", single_quoted_text.token, "'"].flatten
-          when '"'
-            double_quoted_text = DoubleQuotedText.new(@chars)
-            @token += ['"', double_quoted_text.token, '"'].flatten
+      private
+
+      def _scan(char)
+        case char
+        when '{'
+          group = Group.new
+          group.scan(@chars)
+          @commands.push(group)
+        when '('
+          subshell = SubShell.new
+          subshell.scan(@chars)
+          @commands.push(subshell)
+        when '|'
+          if @chars.first == '|'
+            @chars.shift
+            @commands.last.continue_to_fail = true
           else
-            @token << char
+            pipe = Pipe.new(@commands.pop)
+            pipe.scan(@chars)
+            @commands.push(pipe)
           end
+        when '&'
+          if @chars.first == '&'
+            @chars.shift
+            @commands.last.continue_to_succeed = true
+          else
+            daemon = Daemon.new(@commands.pop)
+            daemon.scan(@chars)
+            @commands.push(daemon)
+          end
+        when nil
+          return
+        else
+          @chars.unshift(char)
+          command = Command.new
+          command.scan(@chars)
+          @commands.push(command)
+        end
+      end
+    end
+
+    class Program < Base
+      def _scan(char)
+        unless @commands.empty? || executable?
+          @chars.unshift(char)
+          return @commands.last.scan(@chars)
+        end
+        super
+      end
+    end
+
+    class SubShell < Base
+      def _scan(char)
+        case char
+        when ')'
+          @end = true
+          return
+        when nil
+          return
+        else
+          super
+        end
+      end
+    end
+
+    class Group < Base
+      def _scan(char)
+        unless @commands.empty? || executable?
+          @chars.unshift(char)
+          return @commands.last.scan(@chars)
+        end
+
+        case char
+        when '}'
+          @end = true
+          return
+        when nil
+          return
+        else
+          super
+        end
+      end
+    end
+
+    class Command < Base
+      def _scan(char)
+        unless @commands.empty? || executable?
+          @chars.unshift(char)
+          return @commands.last.scan(@chars)
+        end
+
+        case char
+        when ';', '}', ')', nil
+          @end = true
+          return
+        when '{', '('
+          @end = true
+          @chars.unshift(char)
+          return
+        when '|'
+          @end = true
+          @chars.unshift(char)
+          return
+        when "'"
+          single_quoted_text = SingleQuotedText.new
+          single_quoted_text.token << char
+          single_quoted_text.scan(@chars)
+          @commands.push(single_quoted_text)
+        when '"'
+          double_quoted_text = DoubleQuotedText.new
+          double_quoted_text.token << char
+          double_quoted_text.scan(@chars)
+          @commands.push(double_quoted_text)
+        else
+          literal_text = LiteralText.new
+          @chars.unshift(char)
+          literal_text.scan(@chars)
+          @commands.push(literal_text)
         end
       end
 
       def execute
+        token = @commands.map(&:token).join("")
+        return if token == ' '
         pid = Process.fork do
           yield if block_given?
-          Process.exec @token.join('')
+          Process.exec token
         end
         _, status = Process.waitpid2(pid)
         if @continue_to_succeed
@@ -104,25 +188,8 @@ module Shrb
       end
     end
 
-    class Group < Program
-      def scan
-        loop do
-          case @chars.shift
-          when '}', nil
-            return
-          when '{'
-            group = Group.new(@chars)
-            @commands.push(group)
-          else
-            command = Command.new(@chars)
-            @commands.push(command)
-          end
-        end
-      end
-    end
-
-    class Daemon < Program
-      def initialize(chars, previous_command)
+    class Daemon < Base
+      def initialize(previous_command)
         @previous_command = previous_command
         super(chars)
       end
@@ -130,18 +197,16 @@ module Shrb
       def execute
         return unless @previous_command
 
-        r, w = IO.pipe
         @previous_command.execute do
           Process.daemon
         end
-        w.close
       end
     end
 
-    class Pipe < Program
-      def initialize(chars, previous_command)
+    class Pipe < Base
+      def initialize(previous_command)
         @previous_command = previous_command
-        super(chars)
+        super()
       end
 
       def execute
@@ -164,46 +229,68 @@ module Shrb
       end
     end
 
-    class SingleQuotedText < Program
-      def initialize(chars)
-        @token = []
-        super
+    class LiteralText < Base
+      def executable?
+        end?
       end
 
-      def token
-        @token
-      end
+      private
 
-      def scan
-        loop do
-          char = @chars.shift
-          if char == "'" && @token.last != '\\'
-            return
-          else
-            @token << char
-          end
+      def _scan(char)
+        case char
+        when nil
+          @end = true
+          return
+        when ';', '}', ')', '|'
+          @chars.unshift(char)
+          @end = true
+          return
+        when ' '
+          @end = true
+          @token << char
+          return
+        else
+          @token << char
         end
       end
     end
 
-    class DoubleQuotedText < Program
-      def initialize(chars)
-        @token = []
-        super
+    class SingleQuotedText < Base
+      def executable?
+        end?
       end
 
-      def token
-        @token
+      private
+
+      def _scan(char)
+        if char.nil?
+          return
+        elsif char == "'" && @token.last != '\\'
+          @token << char
+          @end = true
+          return
+        else
+          @token << char
+        end
+      end
+    end
+
+    class DoubleQuotedText < Base
+      def executable?
+        end?
       end
 
-      def scan
-        loop do
-          char = @chars.shift
-          if char == '"' && @token.last != '\\'
-            return
-          else
-            @token << char
-          end
+      private
+
+      def _scan(char)
+        if char.nil?
+          return
+        elsif char == '"' && @token.last != '\\'
+          @token << char
+          @end = true
+          return
+        else
+          @token << char
         end
       end
     end

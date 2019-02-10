@@ -36,9 +36,12 @@ module Shrb
         end
       end
 
+      scanner = Scanner.new
+      prompt = Configuration.prompt
+
       while true
         begin
-          result = coolline.readline(Configuration.prompt)
+          result = coolline.readline(prompt)
 
           #lexer = Lexer.new(result)
           #lexer.parse
@@ -46,10 +49,12 @@ module Shrb
           #lexer.assign
           #lexer.execute
 
-          scanner = Scanner.new(result)
-          scanner.scan
+          scanner.scan(result)
 
-          scanner.execute
+          if scanner.executable?
+            scanner.execute
+            scanner = Scanner.new
+          end
 
         rescue Interrupt
           puts ""
