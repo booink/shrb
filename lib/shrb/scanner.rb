@@ -18,8 +18,16 @@ module Shrb
       @program.executable?
     end
 
+    def empty?
+      @program.commands.empty?
+    end
+
+    def current_program
+      @program.current_program
+    end
+
     class Base
-      attr_accessor :token, :continue_to_succeed, :continue_to_fail
+      attr_accessor :commands, :token, :continue_to_succeed, :continue_to_fail
 
       def initialize
         @commands = Commands.new
@@ -47,6 +55,14 @@ module Shrb
       def executable?
         return false if @commands.empty?
         @commands.last.executable?
+      end
+
+      def to_prompt
+        ""
+      end
+
+      def current_program
+        @commands.last.current_program unless executable?
       end
 
       private
@@ -101,6 +117,12 @@ module Shrb
     end
 
     class SubShell < Base
+      def to_prompt
+        "("
+      end
+
+      private
+
       def _scan(char)
         case char
         when ')'
@@ -115,6 +137,12 @@ module Shrb
     end
 
     class Group < Base
+      def to_prompt
+        "{"
+      end
+
+      private
+
       def _scan(char)
         unless @commands.empty? || executable?
           @chars.unshift(char)
@@ -256,8 +284,16 @@ module Shrb
     end
 
     class SingleQuotedText < Base
+      def to_prompt
+        "'"
+      end
+
       def executable?
         end?
+      end
+
+      def current_program
+        self
       end
 
       private
@@ -276,8 +312,16 @@ module Shrb
     end
 
     class DoubleQuotedText < Base
+      def to_prompt
+        '"'
+      end
+
       def executable?
         end?
+      end
+
+      def current_program
+        self
       end
 
       private

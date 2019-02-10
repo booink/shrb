@@ -37,10 +37,13 @@ module Shrb
       end
 
       scanner = Scanner.new
-      prompt = Configuration.prompt
 
       while true
         begin
+          prompt = Configuration.prompt
+          unless scanner.empty?
+            prompt = scanner.current_program.to_prompt + prompt
+          end
           result = coolline.readline(prompt)
 
           #lexer = Lexer.new(result)
