@@ -1,3 +1,5 @@
+require 'open3'
+
 module Shrb
   class Scanner
     def initialize
@@ -11,6 +13,7 @@ module Shrb
     end
 
     def execute
+      @program.prepare
       @program.execute
     end
 
@@ -48,6 +51,10 @@ module Shrb
         end
       end
 
+      def prepare
+        @commands.prepare
+      end
+
       def execute
         @commands.execute
       end
@@ -62,7 +69,12 @@ module Shrb
       end
 
       def current_program
-        @commands.last.current_program unless executable?
+        last_command = @commands.last
+        if last_command.executable?
+          self
+        else
+          last_command.current_program
+        end
       end
 
       private
@@ -95,6 +107,10 @@ module Shrb
             daemon.scan(@chars)
             @commands.push(daemon)
           end
+        when '='
+          environment_variable = EnvironmentVariable.new(@commands.pop)
+          environment_variable.scan(@chars)
+          @commands.push(environment_variable)
         when nil
           return
         else
@@ -121,6 +137,10 @@ module Shrb
         "("
       end
 
+      def executable?
+        end?
+      end
+
       private
 
       def _scan(char)
@@ -141,14 +161,13 @@ module Shrb
         "{"
       end
 
+      def executable?
+        end?
+      end
+
       private
 
       def _scan(char)
-        unless @commands.empty? || executable?
-          @chars.unshift(char)
-          return @commands.last.scan(@chars)
-        end
-
         case char
         when '}'
           @end = true
@@ -169,7 +188,11 @@ module Shrb
         end
 
         case char
-        when ';', '}', ')', nil
+        when ';', nil
+          @end = true
+          return
+        when '}', ')'
+          @chars.unshift(char)
           @end = true
           return
         when '{', '('
@@ -178,6 +201,9 @@ module Shrb
           return
         when '|'
           @end = true
+          @chars.unshift(char)
+          return
+        when '='
           @chars.unshift(char)
           return
         when "'"
@@ -190,6 +216,11 @@ module Shrb
           double_quoted_text.token << char
           double_quoted_text.scan(@chars)
           @commands.push(double_quoted_text)
+        when '`'
+          back_quoted_text = BackQuotedText.new
+          back_quoted_text.token << char
+          back_quoted_text.scan(@chars)
+          @commands.push(back_quoted_text)
         else
           literal_text = LiteralText.new
           @chars.unshift(char)
@@ -198,8 +229,12 @@ module Shrb
         end
       end
 
+      def prepare
+        @commands.each(&:prepare)
+      end
+
       def execute
-        token = @commands.map(&:token).join("")
+        token = @commands.map(&:execute).join("")
         return if token == ' '
         pid = Process.fork do
           yield if block_given?
@@ -213,6 +248,19 @@ module Shrb
           return !status.success?
         end
         return true
+      end
+    end
+
+    class EnvironmentVariable < Command
+      def initialize(previous_command)
+        @variable_name = previous_command.commands.first.execute
+        super()
+      end
+
+      def execute
+        raise 'must specified variable name' unless @variable_name
+
+        ENV[@variable_name] = @commands.first.execute
       end
     end
 
@@ -262,6 +310,13 @@ module Shrb
         end?
       end
 
+      def prepare
+      end
+
+      def execute
+        @token.join('')
+      end
+
       private
 
       def _scan(char)
@@ -269,7 +324,7 @@ module Shrb
         when nil
           @end = true
           return
-        when ';', '}', ')', '|'
+        when ';', '}', ')', '|', '"', "'", '`', '='
           @chars.unshift(char)
           @end = true
           return
@@ -294,6 +349,14 @@ module Shrb
 
       def current_program
         self
+      end
+
+      def prepare; end
+
+      def execute
+        @token.shift
+        @token.pop
+        @token.join('')
       end
 
       private
@@ -324,6 +387,14 @@ module Shrb
         self
       end
 
+      def prepare; end
+
+      def execute
+        @token.shift
+        @token.pop
+        @token.join('')
+      end
+
       private
 
       def _scan(char)
@@ -339,7 +410,52 @@ module Shrb
       end
     end
 
+    class BackQuotedText < Base
+      def to_prompt
+        '`'
+      end
+
+      def executable?
+        end?
+      end
+
+      def current_program
+        self
+      end
+
+      def prepare; end
+
+      def execute
+        @token.shift
+        @token.pop
+        stdout, _  = Open3.capture2(@token.join(''))
+        stdout
+      end
+
+      private
+
+      def _scan(char)
+        if char.nil?
+          return
+        elsif char == '`' && @token.last != '\\'
+          @token << char
+          @end = true
+          return
+        else
+          @token << char
+        end
+      end
+    end
+
     class Commands < Array
+      def prepare
+        each do |command|
+          unless command.nil?
+            break unless command.prepare
+          end
+        end
+      end
+
       def execute
         each do |command|
           unless command.nil?
