@@ -1,43 +1,30 @@
 # Shrb
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/shrb`. To experiment with that code, run `bin/console` for an interactive prompt.
+Rubyで書かれたシェルです。
+Bashの記法を出来るだけ再現するのが目標です。
 
-TODO: Delete this and the text above, and describe your gem
+Shell by Ruby.
+The goal is to reproduce the notation of Bash as much as possible.
 
-## Installation
-
-Add this line to your application's Gemfile:
-
-```ruby
-gem 'shrb'
-```
-
-And then execute:
-
-    $ bundle
-
-Or install it yourself as:
+## インストール / Installation
 
     $ gem install shrb
 
-## Usage
+## 使い方 / Usage
 
-TODO: Write usage instructions here
+```sh
+shrb
+```
 
-## Development
+## コントリビュート / Contributing
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+バグ報告やプルリクエストは大歓迎です。このプロジェクトは安全で協力的なコラボレーションの場となることを目的としており、コントリビュータは [Contributor Covenant](http://contributor-covenant.org) をよく読んで守っていただけることを望んでいます。
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and tags, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+Bug reports and pull requests are welcome. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
 
-## Contributing
-
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/shrb. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
-
-## License
-
+## ライセンス / License
 The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
 
 ## Code of Conduct
 
-Everyone interacting in the Shrb project’s codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/[USERNAME]/shrb/blob/master/CODE_OF_CONDUCT.md).
+Everyone interacting in the Shrb project’s codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/booink/shrb/blob/master/CODE_OF_CONDUCT.md).
