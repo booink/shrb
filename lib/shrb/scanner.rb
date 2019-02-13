@@ -15,6 +15,7 @@ module Shrb
     def execute
       @program.prepare
       @program.execute
+      @program.cleanup
     end
 
     def executable?
@@ -57,6 +58,10 @@ module Shrb
 
       def execute
         @commands.execute
+      end
+
+      def cleanup
+        @commands.cleanup
       end
 
       def executable?
@@ -191,17 +196,9 @@ module Shrb
         when ';', nil
           @end = true
           return
-        when '}', ')'
+        when '}', ')', '{', '(', '|'
           @chars.unshift(char)
           @end = true
-          return
-        when '{', '('
-          @end = true
-          @chars.unshift(char)
-          return
-        when '|'
-          @end = true
-          @chars.unshift(char)
           return
         when '='
           @chars.unshift(char)
@@ -229,16 +226,14 @@ module Shrb
         end
       end
 
-      def prepare
-        @commands.each(&:prepare)
-      end
-
       def execute
-        token = @commands.map(&:execute).join("")
+        token = @commands.map(&:execute).join('')
         return if token == ' '
+
+        tokens = token.split(' ')
         pid = Process.fork do
           yield if block_given?
-          Process.exec token
+          Process.exec(tokens.shift, *tokens)
         end
         _, status = Process.waitpid2(pid)
         if @continue_to_succeed
@@ -254,6 +249,7 @@ module Shrb
     class EnvironmentVariable < Command
       def initialize(previous_command)
         @variable_name = previous_command.commands.first.execute
+        @backup = ENV[@variable_name]
         super()
       end
 
@@ -261,6 +257,10 @@ module Shrb
         raise 'must specified variable name' unless @variable_name
 
         ENV[@variable_name] = @commands.first.execute
+      end
+
+      def cleanup
+        ENV[@variable_name] = @backup
       end
     end
 
@@ -310,8 +310,8 @@ module Shrb
         end?
       end
 
-      def prepare
-      end
+      def prepare; end
+      def cleanup; end
 
       def execute
         @token.join('')
@@ -352,6 +352,7 @@ module Shrb
       end
 
       def prepare; end
+      def cleanup; end
 
       def execute
         @token.shift
@@ -388,6 +389,7 @@ module Shrb
       end
 
       def prepare; end
+      def cleanup; end
 
       def execute
         @token.shift
@@ -424,6 +426,7 @@ module Shrb
       end
 
       def prepare; end
+      def cleanup; end
 
       def execute
         @token.shift
@@ -460,6 +463,14 @@ module Shrb
         each do |command|
           unless command.nil?
             break unless command.execute
+          end
+        end
+      end
+
+      def cleanup
+        each do |command|
+          unless command.nil?
+            break unless command.cleanup
           end
         end
       end
