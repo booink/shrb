@@ -6,6 +6,27 @@ Bashの記法を出来るだけ再現するのが目標です。
 Shell by Ruby.
 The goal is to reproduce the notation of Bash as much as possible.
 
+## 機能 / Features
+- [x] コマンド実行
+- [x] パイプ
+- [x] 環境変数
+- [x] 論理演算
+- [x] コマンドのグループ化
+- [ ] サブシェル
+- [ ] 変数展開
+- [ ] デーモン化
+- [ ] 長い文字列をパイプすると標準入力で受け取れない
+- [ ] ダブルクォート内の変数展開
+- [ ] ダラー$後の変数展開
+- [ ] 環境変数とインライン環境変数
+- [ ] ヒアドキュメント
+- [ ] リダイレクト
+- [ ] for
+- [ ] while read
+- [ ] ブレース展開
+- [ ] プロセス置換
+
+
 ## インストール / Installation
 
     $ gem install shrb
@@ -13,7 +34,7 @@ The goal is to reproduce the notation of Bash as much as possible.
 ## 使い方 / Usage
 
 ```sh
-shrb
+./exe/shrb
 ```
 
 ## コントリビュート / Contributing
