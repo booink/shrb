@@ -109,7 +109,6 @@ module Shrb
             @commands.last.continue_to_succeed = true
           else
             daemon = Daemon.new(@commands.pop)
-            daemon.scan(@chars)
             @commands.push(daemon)
           end
         when '='
@@ -196,7 +195,7 @@ module Shrb
         when ';', nil
           @end = true
           return
-        when '}', ')', '{', '(', '|'
+        when '}', ')', '{', '(', '|', '&'
           @chars.unshift(char)
           @end = true
           return
@@ -226,16 +225,20 @@ module Shrb
         end
       end
 
-      def execute
+      def execute(reader_pipe: nil, writer_pipe: nil, wait: true)
         token = @commands.map(&:execute).join('')
         return if token == ' '
 
         tokens = token.split(' ')
         pid = Process.fork do
           yield if block_given?
+          STDIN.reopen(reader_pipe) if reader_pipe
+          STDOUT.reopen(writer_pipe) if writer_pipe
           Process.exec(tokens.shift, *tokens)
         end
-        _, status = Process.waitpid2(pid)
+        reader_pipe.close if reader_pipe
+        writer_pipe.close if writer_pipe
+        _, status = Process.waitpid2(pid) if wait
         if @continue_to_succeed
           return status.success?
         end
@@ -266,16 +269,18 @@ module Shrb
 
     class Daemon < Base
       def initialize(previous_command)
-        @previous_command = previous_command
-        super(chars)
+        super()
+        @commands.push(previous_command)
       end
 
       def execute
-        return unless @previous_command
+        return if @commands.empty?
 
-        @previous_command.execute do
+        @commands.last.execute do
           Process.daemon
         end
+      rescue => e
+        puts "e: #{e.inspect}"
       end
     end
 
@@ -285,23 +290,15 @@ module Shrb
         super()
       end
 
-      def execute
+      def execute(reader_pipe: nil, wait: true)
         next_command = @commands.pop
         return unless @previous_command && next_command
 
         r, w = IO.pipe
-        @previous_command.execute do
-          $stdout.reopen w
-        end
-        w.close
+        @previous_command.execute(reader_pipe: reader_pipe, writer_pipe: w, wait: false)
+        next_command.execute(reader_pipe: r, wait: false)
 
-        next_command.execute do
-          $stdin.reopen r
-        end
-        r.close
-
-        $stdin = STDIN
-        $stdout = STDOUT
+        Process.waitall if wait
       end
     end
 
