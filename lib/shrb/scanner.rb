@@ -7,7 +7,6 @@ module Shrb
     end
 
     def scan(text)
-      #@program.scan
       @text = text
       @program.scan(@text.chars)
     end
@@ -31,7 +30,7 @@ module Shrb
     end
 
     class Base
-      attr_accessor :commands, :token, :continue_to_succeed, :continue_to_fail
+      attr_accessor :commands, :token, :continue_to_succeed, :continue_to_fail, :in, :out, :error
 
       def initialize
         @commands = Commands.new
@@ -39,6 +38,9 @@ module Shrb
         @continue_to_succeed = false
         @continue_to_fail = false
         @token = []
+        @in = STDIN
+        @out = STDOUT
+        @error = STDERR
       end
 
       def end?
@@ -100,6 +102,10 @@ module Shrb
             @commands.last.continue_to_fail = true
           else
             pipe = Pipe.new(@commands.pop)
+            if @chars.first == '&'
+              @chars.shift
+              pipe.with_stderr = true
+            end
             pipe.scan(@chars)
             @commands.push(pipe)
           end
@@ -185,6 +191,13 @@ module Shrb
     end
 
     class Command < Base
+      attr_accessor :redirects
+
+      def initialize
+        @redirects = []
+        super
+      end
+
       def _scan(char)
         unless @commands.empty? || executable?
           @chars.unshift(char)
@@ -221,23 +234,34 @@ module Shrb
           literal_text = LiteralText.new
           @chars.unshift(char)
           literal_text.scan(@chars)
-          @commands.push(literal_text)
+          if literal_text.redirect?
+            redirect = Redirect.new
+            redirect.scan(@chars)
+            @redirects.push(redirect)
+          else
+            @commands.push(literal_text)
+          end
         end
       end
 
-      def execute(reader_pipe: nil, writer_pipe: nil, wait: true)
+      def execute(force_redirects: [], wait: true)
         token = @commands.map(&:execute).join('')
         return if token == ' '
+
+        @redirects += force_redirects
 
         tokens = token.split(' ')
         pid = Process.fork do
           yield if block_given?
-          STDIN.reopen(reader_pipe) if reader_pipe
-          STDOUT.reopen(writer_pipe) if writer_pipe
+
+          @redirects.each do |redirect|
+            redirect.source.reopen(redirect.destination)
+          end
           Process.exec(tokens.shift, *tokens)
         end
-        reader_pipe.close if reader_pipe
-        writer_pipe.close if writer_pipe
+        @redirects.each do |redirect|
+          redirect.destination.close
+        end
         _, status = Process.waitpid2(pid) if wait
         if @continue_to_succeed
           return status.success?
@@ -246,6 +270,96 @@ module Shrb
           return !status.success?
         end
         return true
+      end
+    end
+
+    class Redirect
+      attr_accessor :source, :destination
+
+      def initialize(source = nil, destination = nil)
+        @source = source
+        @destination = destination
+      end
+
+      def scan(chars)
+        @chars = chars
+        _chars = _scan
+        _chars.join('').scan(/\A(\d*)([<>][<>|&]?)(.*)\z/) do |source, operator, destination|
+          source = nil if source == ''
+          destination = nil if destination == ''
+          case operator
+          when '>', '>|'
+            output(source, destination)
+          when '>>'
+            appending_output(source, destination)
+          when '>&'
+            duplicating_output(source, destination)
+          when '<'
+            input(source, destination)
+          when '<<'
+            here_document(source, destination)
+          when '<&'
+            duplicating_input(source, destination)
+          when '<>'
+            open_for_reading_and_writing(source, destination)
+          end
+        end
+        @end = true
+      end
+
+      private
+
+      # [fd]>output or [fd]>|output
+      def output(source, destination)
+        @source = source.nil? ? STDOUT : IO.open(source.to_i)
+        destination = _scan.join('') unless destination
+        raise ArgumentError, 'argument is missing' if destination == ''
+        @destination = open(destination, 'w')
+      end
+
+      # [fd]>>output
+      def appending_output(source, destination)
+        @source = source.nil? ? STDOUT : IO.open(source.to_i)
+        destination = _scan.join('') unless destination
+        raise ArgumentError, 'argument is missing' if destination == ''
+        @destination = open(destination, 'a')
+      end
+
+      # [fd]>&output
+      def duplicating_output(source, destination)
+        @source = source.nil? ? STDERR : IO.open(source.to_i)
+        @destination = destination.nil? ? STDOUT : IO.open(destination.to_i)
+      end
+
+      # [fd]<output
+      def input(source, destination)
+        @source = source.nil? ? STDIN : IO.open(source.to_i)
+        destination = _scan.join('') unless destination
+        raise ArgumentError, 'argument is missing' if destination == ''
+        @destination = open(destination, 'r')
+      end
+
+      def here_document(source, destination)
+      end
+
+      # [fd]<&output
+      def duplicating_input(source, destination)
+        @source = source.nil? ? STDERR : IO.open(source.to_i)
+        @destination = destination.nil? ? STDIN : IO.open(destination.to_i)
+      end
+
+      def open_for_reading_and_writing(source, destination)
+      end
+
+      def _scan
+        _chars = []
+        loop do
+          char = @chars.shift
+          break if char.nil? || char == ' '
+
+          _chars.push(char)
+        end
+        _chars
       end
     end
 
@@ -285,24 +399,40 @@ module Shrb
     end
 
     class Pipe < Base
+      attr_accessor :with_stderr
+
       def initialize(previous_command)
         @previous_command = previous_command
+        @with_stderr = false
         super()
       end
 
-      def execute(reader_pipe: nil, wait: true)
+      def execute(readable_io: nil, wait: true)
         next_command = @commands.pop
         return unless @previous_command && next_command
 
         r, w = IO.pipe
-        @previous_command.execute(reader_pipe: reader_pipe, writer_pipe: w, wait: false)
-        next_command.execute(reader_pipe: r, wait: false)
+        redirects = []
+        redirects << Redirect.new(STDIN, readable_io) if readable_io
+        redirects << Redirect.new(STDOUT, w)
+        redirects << Redirect.new(STDERR, w) if with_stderr
+        @previous_command.execute(force_redirects: redirects, wait: false)
+        next_command.execute(force_redirects: [Redirect.new(STDIN, r)], wait: false)
 
         Process.waitall if wait
       end
     end
 
     class LiteralText < Base
+      def initialize
+        super
+        @redirect = false
+      end
+
+      def redirect?
+        @redirect
+      end
+
       def executable?
         end?
       end
@@ -324,6 +454,10 @@ module Shrb
         when ';', '}', ')', '|', '"', "'", '`', '='
           @chars.unshift(char)
           @end = true
+          return
+        when '<', '>'
+          @redirect = true
+          @chars.unshift(@token, char)
           return
         when ' '
           @end = true
@@ -426,10 +560,13 @@ module Shrb
       def cleanup; end
 
       def execute
-        @token.shift
-        @token.pop
-        stdout, _  = Open3.capture2(@token.join(''))
-        stdout
+        @token.shift # remove backquote
+        @token.pop # remove backquote
+        program = Program.new
+        program.scan(@token)
+        program.execute
+        #stdout, _  = Open3.capture2(@token.join(''))
+        #stdout
       end
 
       private
