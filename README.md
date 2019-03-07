@@ -35,7 +35,11 @@ The goal is to reproduce the notation of Bash as much as possible.
 
 ## インストール / Installation
 
+    $ git clone https://github.com/booink/shrb
+
+<!--
     $ gem install shrb
+-->
 
 ## 使い方 / Usage
 
