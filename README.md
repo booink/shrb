@@ -19,8 +19,14 @@ The goal is to reproduce the notation of Bash as much as possible.
 - [ ] ダブルクォート内の変数展開
 - [ ] ダラー$後の変数展開
 - [ ] 環境変数とインライン環境変数
-- [ ] ヒアドキュメント
 - [ ] リダイレクト
+  - [x] output
+  - [x] appending output
+  - [x] duplicating output
+  - [x] input
+  - [x] duplicating input
+  - [ ] here document
+  - [ ] open for reading and writing
 - [ ] for
 - [ ] while read
 - [ ] ブレース展開
